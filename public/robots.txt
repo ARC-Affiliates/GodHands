@@ -1,0 +1,30 @@
+User-agent: *
+Allow: /
+
+# AI Crawlers — explicitly welcomed
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: GoogleOther
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+# Sitemap
+Sitemap: https://godhans.com/sitemap.xml
+
+# LLM context file
+# https://godhans.com/llms.txt
