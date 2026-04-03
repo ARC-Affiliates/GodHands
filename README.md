@@ -1,38 +1,97 @@
-# Godhans Tree Company — Site
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-## Project Structure
-```
-godhans/
-├── api/
-│   └── reviews.js        ← Vercel serverless function (Google Reviews proxy)
-├── public/
-│   ├── index.html        ← Home (animated forest hero)
-│   ├── services.html     ← Services
-│   ├── about.html        ← About
-│   ├── service-area.html ← Service Area
-│   ├── reviews.html      ← Reviews (live from Google API)
-│   ├── contact.html      ← Contact / Free Estimate
-│   ├── style.css         ← Shared styles
-│   └── shared.js         ← Shared JS (cursor, nav, reveal)
-└── vercel.json           ← Vercel routing config
-```
+  const GHL_API_KEY   = process.env.GHL_API_KEY;
+  const LOCATION_ID   = process.env.GHL_LOCATION_ID || '7ICxlqy4mXPvJse3J4gc';
+  const PIPELINE_ID   = process.env.GHL_PIPELINE_ID || 'pit-42e899f4-b486-411c-af09-51ea94bd7376';
+  const STAGE_ID      = process.env.GHL_STAGE_ID    || '';
 
-## Deploy to Vercel
+  if (!GHL_API_KEY) {
+    return res.status(500).json({ error: 'GHL_API_KEY not configured' });
+  }
 
-1. Push this folder to a GitHub repo
-2. Go to vercel.com → New Project → Import repo
-3. Set root directory to `/` (not /public)
-4. Add Environment Variables:
-   - `GOOGLE_API_KEY` = Mike's Google API key
-   - `GOOGLE_PLACE_ID` = Godhans Place ID (ChIJ... format)
-5. Deploy
+  try {
+    const body = req.body || {};
+    const { first_name, last_name, phone, email, service, message } = body;
 
-## GHL Form Wiring (Contact Page)
-In `contact.html`, find the `handleSubmit` function and replace the `setTimeout` with a GHL webhook POST once credentials are available.
+    if (!first_name || !phone) {
+      return res.status(400).json({ error: 'First name and phone are required' });
+    }
 
-## Pending
-- [ ] Google API key from Mike's Google Console
-- [ ] Confirmed ChIJ... Place ID
-- [ ] GHL Location ID, Pipeline ID, Stage ID for contact form
-- [ ] Real photos from Mike (hero, about, services)
-- [ ] Domain pointed to Vercel via Namecheap DNS
+    const headers = {
+      'Authorization': `Bearer ${GHL_API_KEY}`,
+      'Content-Type': 'application/json',
+      'Version': '2021-07-28'
+    };
+
+    // 1. Create Contact
+    const contactPayload = {
+      locationId: LOCATION_ID,
+      firstName: first_name,
+      lastName: last_name || '',
+      phone: phone,
+      email: email || '',
+      tags: ['godhans-website', 'free-estimate-request'],
+      customFields: [
+        { key: 'service_requested', field_value: service || '' },
+        { key: 'project_details',   field_value: message || '' }
+      ],
+      source: 'godhandstreeservice.com'
+    };
+
+    const contactRes = await fetch('https://services.leadconnectorhq.com/contacts/', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(contactPayload)
+    });
+
+    const contactData = await contactRes.json();
+
+    if (!contactRes.ok) {
+      console.error('GHL contact error:', contactData);
+      return res.status(502).json({ error: 'Failed to create contact', detail: contactData });
+    }
+
+    const contactId = contactData.contact?.id;
+
+    // 2. Create Opportunity (if we have pipeline + stage + contact)
+    if (contactId && PIPELINE_ID && STAGE_ID) {
+      const oppName = `${first_name} ${last_name || ''} - ${service || 'Free Estimate'}`.trim();
+      const oppPayload = {
+        pipelineId: PIPELINE_ID,
+        locationId: LOCATION_ID,
+        name: oppName,
+        pipelineStageId: STAGE_ID,
+        contactId: contactId,
+        status: 'open',
+        source: 'godhandstreeservice.com'
+      };
+
+      const oppRes = await fetch('https://services.leadconnectorhq.com/opportunities/', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(oppPayload)
+      });
+
+      if (!oppRes.ok) {
+        const oppErr = await oppRes.json();
+        console.error('GHL opportunity error:', oppErr);
+        // Don't fail the whole request — contact was created successfully
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      contactId,
+      message: 'Estimate request received'
+    });
+
+  } catch (err) {
+    console.error('Contact handler error:', err);
+    return res.status(500).json({ error: 'Internal error', detail: String(err) });
+  }
+}
